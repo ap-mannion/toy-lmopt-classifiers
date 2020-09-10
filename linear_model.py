@@ -122,6 +122,7 @@ of samples in y ({y.shape[0]})""")
         return np.sum(res, 0)+self.l2*w
 
     def hess(self, w):
+        # this obviously won't ever be used as the hinge is linear, but just threw it in for completeness
         d = w.shape[0]
 
         return np.zeros((d, d))
