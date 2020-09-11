@@ -7,6 +7,7 @@ def gaussian(a, b, variance, sigma=None):
     Computes the Gaussian similarity measure between the given arrays a and b, with
     the sd specified by sigma or variance specified directly.
     """
+    assert(len(a) == len(b))
     ssq = variance if sigma is None else sigma**2
     return np.exp(-np.sqrt(np.linalg.norm(a-b)**2/(2*ssq)))
 
@@ -43,19 +44,22 @@ def spectrum(a, b, k, sim_fn=None):
         try:
             res = sim_fn(count_a, count_b)
         except:
-            # make numpy arrays from the sparse dictionary representation (this is not recommended)
-            a_list, b_list = [], []
-            for subseq in np.unique(np.array(list(count_a.keys())+list(count_b.keys()))):
-                if subseq in count_a and subseq in count_b:
-                    a_list.append(count_a[subseq])
-                    b_list.append(count_b[subseq])
-                elif subseq in count_a and subseq not in count_b:
-                    a_list.append(count_a[subseq])
-                    b_list.append(0)
-                else:
-                    a_list.append(0)
-                    b_list.append(count_b[subseq])
-            res = sim_fn(np.array(a_list), np.array(b_list))
+            try:
+                # make numpy arrays from the sparse dictionary representation (this is not recommended)
+                a_list, b_list = [], []
+                for subseq in np.unique(np.array(list(count_a.keys())+list(count_b.keys()))):
+                    if subseq in count_a:
+                        a_list.append(count_a[subseq])
+                    else:
+                        a_list.append(0)
+                    if subseq in count_b:
+                        b_list.append(count_b[subseq])
+                    else:
+                        b_list.append(0)
+                res = sim_fn(np.array(a_list), np.array(b_list))
+            except:
+                raise TypeError('''Bad input for similarity function: must take either dictionaries
+representing sparse matrices or numpy arrays''')
 
     return res                
                     
