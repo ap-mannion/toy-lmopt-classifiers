@@ -26,18 +26,17 @@ class LogisticLoss:
         To calculate a mini-batch gradient, use the 'batch' argument to pass a list of indices to select,
         or a single integer to take the gradient at one data point only
         """
-        if X.shape[0] != y.shape[0]:
-            raise ValueError(f"""Number of samples in X ({X.shape[0]}) doesn't match the number
-of samples in y ({y.shape[0]})""")
-        if X.shape[1] != w.shape[0]:
-            raise ValueError(f"""Dimension of X ({X.shape[1]}) doesn't match the dimension of w
-({w.shape[0]})""")
+        solvers.check_input_dims(X, y, w)
         if batch is not None:
-            X = X[batch,:]
-            y = y[batch]
+            X, y = X[batch], y[batch]
 
-        res = sum(np.diag(-y/(1+np.exp(y*np.dot(X, w)))))/len(y)
-        if X.shape[0] == 1:
+        fracterm = -y/(1+np.exp(y*np.dot(X, w)))
+        if type(fracterm) is np.ndarray:
+            fracterm = np.sum(np.diag(fracterm), 1)
+        res = fracterm
+        if type(batch) is not int:
+            res /= len(y)
+        if len(X.shape) == 1:
             res *= X
         else:
             res = res@X
@@ -49,15 +48,9 @@ of samples in y ({y.shape[0]})""")
         Calculates the Hessian matrix of the loss for the given classifier weights.
         Mini-batches can be implemented similarly as for the grad function.
         """
-        if X.shape[0] != y.shape[0]:
-            raise ValueError(f"""Number of samples in X ({X.shape[0]}) doesn't match the number
-of samples in y ({y.shape[0]})""")
-        if X.shape[1] != w.shape[0]:
-            raise ValueError(f"""Dimension of X ({X.shape[1]}) doesn't match the dimension of w
-({w.shape[0]})""")
+        solvers.check_input_dims(X, y, w)
         if batch is not None:
-            X = X[batch,:]
-            y = y[batch]
+            X, y = X[batch], y[batch]
 
         def _hessmat(X, y):
             expterm = np.exp(-y*np.dot(X, w))
@@ -104,20 +97,16 @@ class HingeLoss:
         return np.sum(loss)+0.5*self.l2*np.linalg.norm(w, 2)
 
     def grad(self, X, y, w, batch=None):
-        if X.shape[0] != y.shape[0]:
-            raise ValueError(f"""Number of samples in X ({X.shape[0]}) doesn't match the number
-of samples in y ({y.shape[0]})""")
-        if X.shape[1] != w.shape[0]:
-            raise ValueError(f"""Dimension of X ({X.shape[1]}) doesn't match the dimension of w
-({w.shape[0]})""")
+        solvers.check_input_dims(X, y, w)
         if batch is not None:
-            X = X[batch,:]
-            y = y[batch]
-        
-        d = w.shape[0]
-        res = np.empty(X.shape)
-        for i in range(X.shape[0]):
-            res[i,:] = y[i]*X[i,:] if y[i]*np.dot(X[i,:], w) >= 1 else 0
+            X, y = X[batch], y[batch]
+
+        try:
+            res = np.empty(X.shape)
+            for i in range(X.shape[0]):
+                res[i,:] = -y[i]*X[i,:] if y[i]*np.dot(X[i,:], w) >= 1 else np.zeros(X.shape[1])
+        except IndexError:
+            res = -y*X if y*np.dot(X, w) < 1 else np.zeros(len(w))
 
         return np.sum(res, 0)+self.l2*w
 
@@ -130,14 +119,15 @@ of samples in y ({y.shape[0]})""")
 
 class LinearModel:
 
-    def __init__(self, loss_fn, solver='gd', svmkernel='gaussian', l1=0.0, l2=0.01, max_iter=100):
+    def __init__(self, loss_fn, solver, svmkernel=None, l1=0.0, l2=0.01, max_iter=100):
         losses = {'logistic', 'hinge'}
         if loss_fn not in losses:
             raise ValueError('loss function argument must be one of %r'%losses)
 
         self.loss = LogisticLoss() if loss_fn == 'logistic' else HingeLoss()
         self.solver = getattr(solvers, solver.upper())
-        self.svmkernel = getattr(kernels, svmkernel) if loss_fn == 'hinge' else None
+        if svmkernel is not None:
+            self.svmkernel = getattr(kernels, svmkernel) if loss_fn == 'hinge' else None
         self.l1 = l1
         self.l2 = l2
         self.max_iter = max_iter
@@ -147,7 +137,7 @@ class LinearModel:
         Fits the model to the training data X and labels y by minimising the empirical risk using the
         specified loss function & regularisation coefficients
         """
-        self._weights, self._wtab = self.solver(np.zeros(X.shape[1]), self.loss, **solver_kwargs)
+        self._weights, self._wtab = self.solver(X, y, np.zeros(X.shape[1]), self.loss, **solver_kwargs)
         self.loss_val = self.loss(X, y, self._weights)
 
     def decision_function(self, X):
