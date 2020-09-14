@@ -56,7 +56,7 @@ class LogisticLoss:
             expterm = np.exp(-y*np.dot(X, w))
             return (expterm/(1+expterm)**2)*np.outer(X, X)
 
-        n = len(y)
+        n = len(y) if type(y) not in {int, np.int64} else 1
         reg = self.l2
         if n > 1:
             d = X.shape[1]
@@ -94,6 +94,7 @@ class HingeLoss:
         loss = np.empty(n)
         for i in range(n):
             loss[i] = max(0, 1-y[i]*np.dot(X[i,:], w))
+
         return np.sum(loss)+0.5*self.l2*np.linalg.norm(w, 2)
 
     def grad(self, X, y, w, batch=None):
@@ -132,12 +133,16 @@ class LinearModel:
         self.l2 = l2
         self.max_iter = max_iter
 
-    def fit(self, X, y, **solver_kwargs):
+    def fit(self, X, y, random_init=False, **solver_kwargs):
         """
         Fits the model to the training data X and labels y by minimising the empirical risk using the
         specified loss function & regularisation coefficients
         """
-        self._weights, self._wtab = self.solver(X, y, np.zeros(X.shape[1]), self.loss, **solver_kwargs)
+        self._weights, self._wtab = self.solver(
+            X, y,
+            np.random.rand(X.shape[1]) if random_init else np.zeros(X.shape[1]),
+            self.loss, **solver_kwargs
+        )
         self.loss_val = self.loss(X, y, self._weights)
 
     def decision_function(self, X):
