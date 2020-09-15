@@ -1,5 +1,9 @@
 import numpy as np
 from collections import defaultdict
+# TODO: spectrum: support custom similarity functions with scipy.csc matrices as inputs
+
+
+linear = lambda a, b: np.dot(a, b)
 
 
 def gaussian(a, b, variance, sigma=None):
@@ -58,8 +62,7 @@ def spectrum(a, b, k, sim_fn=None):
                         b_list.append(0)
                 res = sim_fn(np.array(a_list), np.array(b_list))
             except:
-                raise TypeError('''Bad input for similarity function: must take either dictionaries
-representing sparse matrices or numpy arrays''')
+                raise TypeError('''Bad input for similarity function: must take either dictionaries representing sparse matrices or numpy arrays''')
 
     return res                
                     

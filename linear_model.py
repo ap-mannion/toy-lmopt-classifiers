@@ -1,4 +1,5 @@
 import numpy as np
+import helpers
 import solvers
 import kernels
 # TODO:
@@ -26,7 +27,7 @@ class LogisticLoss:
         To calculate a mini-batch gradient, use the 'batch' argument to pass a list of indices to select,
         or a single integer to take the gradient at one data point only
         """
-        solvers.check_input_dims(X, y, w)
+        helpers.check_input_dims(X, y, w)
         if batch is not None:
             X, y = X[batch], y[batch]
 
@@ -48,7 +49,7 @@ class LogisticLoss:
         Calculates the Hessian matrix of the loss for the given classifier weights.
         Mini-batches can be implemented similarly as for the grad function.
         """
-        solvers.check_input_dims(X, y, w)
+        helpers.check_input_dims(X, y, w)
         if batch is not None:
             X, y = X[batch], y[batch]
 
@@ -98,7 +99,7 @@ class HingeLoss:
         return np.sum(loss)+0.5*self.l2*np.linalg.norm(w, 2)
 
     def grad(self, X, y, w, batch=None):
-        solvers.check_input_dims(X, y, w)
+        helpers.check_input_dims(X, y, w)
         if batch is not None:
             X, y = X[batch], y[batch]
 
@@ -120,15 +121,14 @@ class HingeLoss:
 
 class LinearModel:
 
-    def __init__(self, loss_fn, solver, svmkernel=None, l1=0.0, l2=0.01, max_iter=100):
+    def __init__(self, loss_fn, solver, svmkernel='linear', l1=0.0, l2=0.01, max_iter=100):
         losses = {'logistic', 'hinge'}
         if loss_fn not in losses:
             raise ValueError('loss function argument must be one of %r'%losses)
 
         self.loss = LogisticLoss() if loss_fn == 'logistic' else HingeLoss()
         self.solver = getattr(solvers, solver.upper())
-        if svmkernel is not None:
-            self.svmkernel = getattr(kernels, svmkernel) if loss_fn == 'hinge' else None
+        self.svmkernel = getattr(kernels, svmkernel) if loss_fn == 'hinge' else None
         self.l1 = l1
         self.l2 = l2
         self.max_iter = max_iter
@@ -138,11 +138,15 @@ class LinearModel:
         Fits the model to the training data X and labels y by minimising the empirical risk using the
         specified loss function & regularisation coefficients
         """
-        self._weights, self._wtab = self.solver(
-            X, y,
-            np.random.rand(X.shape[1]) if random_init else np.zeros(X.shape[1]),
-            self.loss, **solver_kwargs
-        )
+        try:
+            self._weights, self._wtab = self.solver(
+                X, y,
+                np.random.rand(X.shape[1]) if random_init else np.zeros(X.shape[1]),
+                self.loss, **solver_kwargs
+            )
+        except TypeError:
+            # currently the cvxopt wrapper needs this format
+            self._weights = self.solver(X, y, kernel_fn=self.svmkernel, **solver_kwargs)
         self.loss_val = self.loss(X, y, self._weights)
 
     def decision_function(self, X):
