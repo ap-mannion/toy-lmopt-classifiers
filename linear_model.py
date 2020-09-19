@@ -4,6 +4,8 @@ import solvers
 import kernels
 # TODO:
 # add cross-entropy loss
+# test quasi-Newton methods with hinge loss (SLBFGS won't work as there's a batch Hessian in there)
+# trycatch on loss call in fit() for kernel svm when the qp solver returns Lagrange multipliers
 
 
 class LogisticLoss:
@@ -112,19 +114,24 @@ class HingeLoss:
 
         return np.sum(res, 0)+self.l2*w
 
-    def hess(self, w):
-        # this obviously won't ever be used as the hinge is linear, but just threw it in for completeness
-        d = w.shape[0]
-
-        return np.zeros((d, d))
-
 
 class LinearModel:
 
-    def __init__(self, loss_fn, solver, svmkernel='linear', l1=0.0, l2=0.01, max_iter=100):
+    def __init__(self, loss_fn, solver, svmkernel=None, l1=0.0, l2=0.01, max_iter=100):
         losses = {'logistic', 'hinge'}
+        
         if loss_fn not in losses:
-            raise ValueError('loss function argument must be one of %r'%losses)
+            raise ValueError(f'loss function argument must be one of {losses}')
+        
+        if loss_fn == 'hinge' and solver in {'nm', 'bfgs', 'lbfgs', 'slbfgs'}:
+            raise ValueError(f'the solver {solver.upper()}() is a second-order method which cannot be used for direct minimisation of the hinge loss function: try solver=`qp_ksvm`')
+        elif loss_fn != 'hinge' and solver == 'qp_ksvm':
+            raise ValueError('the quadratic programming solver only applies to SVM classification (loss_fn=`hinge`)')
+
+        if svmkernel is not None and loss_fn != 'hinge':
+            raise UserWarning('kernel function argument is applicable only to SVM classification (loss_fn=`hinge`)')
+        elif svmkernel is None and loss_fn == 'hinge':
+            svmkernel = 'linear'
 
         self.loss = LogisticLoss() if loss_fn == 'logistic' else HingeLoss()
         self.solver = getattr(solvers, solver.upper())
@@ -146,8 +153,8 @@ class LinearModel:
             )
         except TypeError:
             # currently the cvxopt wrapper needs this format
-            self._weights = self.solver(X, y, kernel_fn=self.svmkernel, **solver_kwargs)
-        self.loss_val = self.loss(X, y, self._weights)
+            self._weights, self._bias = self.solver(X, y, kernel_fn=self.svmkernel, **solver_kwargs)
+        #self.loss_val = self.loss(X, y, self._weights)
 
     def decision_function(self, X):
         """
