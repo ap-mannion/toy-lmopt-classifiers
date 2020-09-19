@@ -1,5 +1,6 @@
 import numpy as np
 import helpers
+# TODO: refactor iteration loops and cut down on weight initialisation copies
 
 
 def GD(X, y, w_init, obj_fn, max_iter, smoothness):
@@ -113,12 +114,12 @@ def SVRG(X, y, w_init, obj_fn, max_iter, smoothness, strong_convexity):
 
     k = 0
     while k <= max_iter:
-        v0 = wtab[k]
+        v0 = wtab[k] if k > 0 else w_init
         v = np.copy(v0)
         grad_tmp = obj_fn.grad(X, y, v)
         for _ in range(M):
             i = np.random.randint(len(y))
-            y -= stepsize*obj_fn.grad(X, y, v, i)-obj_fn.grad(X, y, v0, i)+grad_tmp
+            v -= stepsize*obj_fn.grad(X, y, v, i)-obj_fn.grad(X, y, v0, i)+grad_tmp
         w = v
         wtab = np.vstack((wtab, w))
         k += 1
@@ -152,6 +153,8 @@ def NM(X, y, w_init, obj_fn, max_iter, smoothness, stopping_eps=1e-5, ls_alpha=0
         g = obj_fn.grad(X, y, w)
         if ls_alpha is not None and ls_beta is not None:
             stepsize, ghprod = helpers.linesearch(obj_fn, X, y, w, stepsize, ls_alpha, ls_beta, g)
+        else:
+            ghprod = np.linalg.solve(obj_fn.hess(X, y, w), g)
         w -= stepsize*ghprod
         wtab = np.vstack((wtab, w))
         if 0.5*np.dot(g, ghprod) <= stopping_eps:
@@ -318,25 +321,45 @@ def SLBFGS(X, y, w_init, obj_fn, max_iter, smoothness, n_updates, memory_size, n
     return w, wtab
 
 
-def QP_KSVM(X, y, l2_regularisation, kernel_fn, **kernelparams):
+def QP_KSVM(X, y, soft_margin_coef=1.0, kernel_fn=None, **kernelparams):
     """
-    Uses cvxopt to find the optimal SVM hyperplane by the quadratic optimisation method
+    Uses cvxopt to find the optimal SVM hyperplane by solving the dual optimisation problem
+    as a quadratic program - the solver returns the Lagrange multipliers of the dual
+    problem. This function will return the hyperplane weights only in the linear kernel
+    case, otherwise it will return the Lagrange multipliers, as computing the hyperplane
+    explicitly requires projecting into the feature space implicit in the kernel; for all
+    non-trivial kernels, the hyperplane will be computed implicitly in the inner product
+    space at prediction time. The `soft_margin_coef` argument can be set to None to do
+    hard-margin classification.
     """
     from cvxopt import matrix
     from cvxopt.solvers import qp, options
+    import kernels
+
+    if kernel_fn is None:
+        kernel_fn = kernels.linear
     
     n = X.shape[0]
-    K = helpers.gram(X, kernel_fn, **kernelparams) 
+    K = helpers.gram(X, kernel_fn, **kernelparams)
+    
     I = np.eye(n)
+    G, h = matrix(-1*I), np.zeros(n)
 
     options["show_progress"] = False
-    res = qp(
+    qp_sol = np.ravel(qp(
         P=matrix(np.outer(y, y)*K),
         q=matrix(-1*np.ones(n)),
-        G=matrix(np.vstack((-1*I, I))),
-        h=matrix(np.vstack((np.zeros(n), l2_regularisation*np.ones(n))), (n*2, 1), "d"),
+        G=matrix(G if soft_margin_coef is None else np.vstack((G, I))),
+        h=matrix(h if soft_margin_coef is None else np.vstack((h, soft_margin_coef*np.ones(n))), (2*n, 1), "d"),
         A=matrix(y, (1, n), "d"),
         b=matrix(0.0)
-    )
+    )["x"])
 
-    return np.ravel(res["x"])
+    # get support vectors and bias term
+    is_sv = qp_sol > 1e-5
+    sv_lms, support_vectors, sv_labels = qp_sol[is_sv], X[is_sv], y[is_sv]
+    bias = np.mean(sv_labels-np.sum(sv_lms*sv_labels*np.array([K[is_sv,j] for j in np.arange(n)[is_sv]]), 0))
+
+    res = np.sum(sv_lms*sv_labels*support_vectors, 1) if kernel_fn is kernels.linear else sv_lms
+
+    return res, bias
