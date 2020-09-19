@@ -11,9 +11,12 @@ def gaussian(a, b, variance, sigma=None):
     Computes the Gaussian similarity measure between the given arrays a and b, with
     the sd specified by sigma or variance specified directly.
     """
-    assert(len(a) == len(b))
     ssq = variance if sigma is None else sigma**2
+    
     return np.exp(-np.sqrt(np.linalg.norm(a-b)**2/(2*ssq)))
+
+
+polynomial = lambda a, b, deg=3, intercept=0.0: (np.dot(a, b)+intercept)**deg
 
 
 def spectrum(a, b, k, sim_fn=None):
