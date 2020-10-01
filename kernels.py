@@ -1,6 +1,6 @@
 import numpy as np
 from collections import defaultdict
-# TODO: spectrum: support custom similarity functions with scipy.csc matrices as inputs
+from warnings import warn
 
 
 linear = lambda a, b: np.dot(a, b)
@@ -13,16 +13,16 @@ def gaussian(a, b, variance, sigma=None):
     """
     ssq = variance if sigma is None else sigma**2
     
-    return np.exp(-np.sqrt(np.linalg.norm(a-b)**2/(2*ssq)))
+    return np.exp(-1*np.linalg.norm(a-b)**2/(2*ssq))
 
 
 polynomial = lambda a, b, deg=3, intercept=0.0: (np.dot(a, b)+intercept)**deg
 
 
-def spectrum(a, b, k, sim_fn=None):
+def spectrum(a, b, k, sim_fn=None, **sf_params):
     """
     Computes the spectrum kernel, which is a similarity measure of two sequences
-    based on the number of occurrences of subsequences of a given length in each one,
+    based on the number of occurrences of subausequences of a given length in each one,
     without explicitly mapping them to the feature space.
 
     Parameters
@@ -49,25 +49,47 @@ def spectrum(a, b, k, sim_fn=None):
                 res += freq*count_b[subseq]
     else:
         try:
-            res = sim_fn(count_a, count_b)
+            res = sim_fn(count_a, count_b, **sf_params)
         except:
             try:
-                # make numpy arrays from the sparse dictionary representation (this is not recommended)
-                a_list, b_list = [], []
-                for subseq in np.unique(np.array(list(count_a.keys())+list(count_b.keys()))):
-                    if subseq in count_a:
-                        a_list.append(count_a[subseq])
-                    else:
-                        a_list.append(0)
-                    if subseq in count_b:
-                        b_list.append(count_b[subseq])
-                    else:
-                        b_list.append(0)
-                res = sim_fn(np.array(a_list), np.array(b_list))
-            except:
-                raise TypeError('''Bad input for similarity function: must take either dictionaries representing sparse matrices or numpy arrays''')
+                # see if the function will take compressed sparse row matrices
+                from scipy.sparse import coo_matrix, csr_matrix
 
-    return res                
+                subsequences = np.unique(np.array(list(count_a.keys())+list(count_b.keys())))
+                coords = {}
+                coords.update((seq, i) for i, seq in enumerate(subsequences))
+                
+                def _tosparse(fdict):
+                    rows, cols, freqs = [], [], []
+                    for k, v in fdict.items():
+                        rows.append(1)
+                        cols.append(coords[k])
+                        freqs.append(v)
+
+                    return csr_matrix(coo_matrix((freqs, (rows, cols))))
+
+                res = sim_fn(_tosparse(count_a), _tosparse(count_b), **sf_params)
+
+            except:
+                # try with numpy arrays
+                warn(f"""Provided similarity function {sim_fn.__name__} doesn't support sparse vector representations - trying with dense numpy arrays.
+This can be very slow for long sequences with high-dimensional frequency spaces""", RuntimeWarning)
+                try:
+                    def _tonp(fdict):
+                        l = []
+                        for s, i in coords.items():
+                            try:
+                                l.append(fdict[s])
+                            except KeyError:
+                                l.append(0)
+
+                        return np.array(l)
+
+                    res = sim_fn(_tonp(count_a), _tonp(count_b), **sf_params)
+                except:
+                    raise TypeError("""Bad input for similarity function: must take either dictionaries representing sparse matrices or numpy arrays""")
+
+    return res             
                     
                 
 
