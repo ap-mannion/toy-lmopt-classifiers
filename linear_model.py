@@ -2,10 +2,6 @@ import numpy as np
 import helpers
 import solvers
 import kernels
-# TODO:
-# add cross-entropy loss
-# test quasi-Newton methods with hinge loss (SLBFGS won't work as there's a batch Hessian in there)
-# trycatch on loss call in fit() for kernel svm when the qp solver returns Lagrange multipliers
 
 
 class LogisticLoss:
@@ -33,16 +29,19 @@ class LogisticLoss:
         if batch is not None:
             X, y = X[batch], y[batch]
 
-        fracterm = -y/(1+np.exp(y*np.dot(X, w)))
-        if type(fracterm) is np.ndarray:
+        exparg = np.dot(X, w)
+        while np.linalg.norm([exparg], np.inf) > 10:
+            # scale down the product term if it's too big to take the exponential
+            exparg *= 0.1
+        fracterm = -y/(1+np.exp(y*exparg))
+        if len(fracterm.shape) > 1:
             fracterm = np.sum(np.diag(fracterm), 1)
-        res = fracterm
         if type(batch) is not int:
-            res /= len(y)
+            fracterm /= len(y)
         if len(X.shape) == 1:
-            res *= X
+            res = fracterm*X
         else:
-            res = res@X
+            res = fracterm@X
 
         return res+self.l2*w
 
@@ -96,7 +95,7 @@ class HingeLoss:
         n = X.shape[0]
         loss = np.empty(n)
         for i in range(n):
-            loss[i] = max(0, 1-y[i]*np.dot(X[i,:], w))
+            loss[i] = max(0.0, 1.0-y[i]*np.dot(X[i,:], w))
 
         return np.sum(loss)+0.5*self.l2*np.linalg.norm(w, 2)
 
@@ -124,6 +123,7 @@ class LinearModel:
             raise ValueError(f'loss function argument must be one of {losses}')
         
         if loss_fn == 'hinge' and solver in {'nm', 'bfgs', 'lbfgs', 'slbfgs'}:
+            # TODO: test svm with quasi-Newton methods and adjust this accordingly
             raise ValueError(f'the solver {solver.upper()}() is a second-order method which cannot be used for direct minimisation of the hinge loss function: try solver=`qp_ksvm`')
         elif loss_fn != 'hinge' and solver == 'qp_ksvm':
             raise ValueError('the quadratic programming solver only applies to SVM classification (loss_fn=`hinge`)')
@@ -139,22 +139,25 @@ class LinearModel:
         self.l1 = l1
         self.l2 = l2
         self.max_iter = max_iter
+        self.use_cvxopt_wrap_format = loss_fn == 'hinge' and solver == 'qp_ksvm'
 
     def fit(self, X, y, random_init=False, **solver_kwargs):
         """
         Fits the model to the training data X and labels y by minimising the empirical risk using the
         specified loss function & regularisation coefficients
         """
-        try:
+        if not self.use_cvxopt_wrap_format:
             self._weights, self._wtab = self.solver(
                 X, y,
-                np.random.rand(X.shape[1]) if random_init else np.zeros(X.shape[1]),
+                5*np.random.rand(X.shape[1]) if random_init else np.zeros(X.shape[1]),
                 self.loss, **solver_kwargs
             )
-        except TypeError:
+        else:
             # currently the cvxopt wrapper needs this format
             self._weights, self._bias = self.solver(X, y, kernel_fn=self.svmkernel, **solver_kwargs)
-        #self.loss_val = self.loss(X, y, self._weights)
+        
+        if self._weights.size == X.shape[1]: # check that it's not kernel SVM
+            self.loss_val = self.loss(X, y, self._weights)
 
     def decision_function(self, X):
         """
