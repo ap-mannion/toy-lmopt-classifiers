@@ -133,8 +133,13 @@ class LinearModel:
         elif svmkernel is None and loss_fn == 'hinge':
             svmkernel = 'linear'
 
+        try:
+            chosen_solver = getattr(solvers, solver.upper())
+        except AttributeError:
+            raise NameError('Invalid solver name')
+
         self.loss = LogisticLoss() if loss_fn == 'logistic' else HingeLoss()
-        self.solver = getattr(solvers, solver.upper())
+        self.solver = chosen_solver
         self.svmkernel = getattr(kernels, svmkernel) if loss_fn == 'hinge' else None
         self.l1 = l1
         self.l2 = l2
