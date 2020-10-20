@@ -96,11 +96,12 @@ def SVRG(X, y, w, obj_fn, max_iter, smoothness, strong_convexity):
     Gradient Descent using Predictive Variance Reduction', published in NIPS 2013
     """
     helpers.check_input_dims(X, y, w)
-    stepsize = 0.1/smoothness
+    n = X.shape[0]
     M = int(1.1*smoothness/strong_convexity)
     wtab = np.copy(w)
 
-    for _ in range(max_iter):
+    for k in range(max_iter):
+        stepsize = 1.0/(smoothness*(int(1+k/n)**0.6))
         v0 = w
         v = np.copy(v0)
         grad_tmp = obj_fn.grad(X, y, v)
@@ -113,7 +114,7 @@ def SVRG(X, y, w, obj_fn, max_iter, smoothness, strong_convexity):
     return w, wtab
 
 
-def NM(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5, ls_alpha=1e-4, ls_beta=0.9):
+def NM(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5):
     """
     Newton's method for logistic regression. The args `X`, `y`, `w`, `obj_fn`, `max_iter`, and
     `smoothness` have the same definitions as for gradient descent. If either of the line search 
@@ -123,11 +124,6 @@ def NM(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5, ls_alpha=1e-4, 
     ----------
     stopping_eps:  float
         Precision to be used in the stopping rule
-    ls_alpha: float
-        Constant used to check the Armijo condition in the Wolfe line search for the optimal step
-        size
-    ls_beta: float
-        Constant used to scale the step size in the Wolfe search
     """
     helpers.check_input_dims(X, y, w)
     wtab = np.copy(w)
@@ -135,19 +131,16 @@ def NM(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5, ls_alpha=1e-4, 
 
     for _ in range(max_iter):
         g = obj_fn.grad(X, y, w)
-        if ls_alpha is not None and ls_beta is not None:
-            stepsize, ghprod = helpers.linesearch(obj_fn, X, y, w, stepsize, ls_alpha, ls_beta, g)
-        else:
-            ghprod = np.linalg.solve(obj_fn.hess(X, y, w), g)
-        w -= stepsize*ghprod
+        direction = np.linalg.solve(obj_fn.hess(X, y, w), g)
+        w -= stepsize*direction
         wtab = np.vstack((wtab, w))
-        if 0.5*np.dot(g, ghprod) <= stopping_eps:
+        if 0.5*np.dot(g, direction) <= stopping_eps:
             break
 
     return w, wtab
 
 
-def BFGS(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5, ls_alpha=1e-4, ls_beta=0.9):
+def BFGS(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5):
     """
     Implementation of the Broyden-Fletcher-Goldfarb-Shanno algorithm, a type of quasi-Newton method,
     with the stopping rule based on the absolute change in the value of the objective function
@@ -160,13 +153,7 @@ def BFGS(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5, ls_alpha=1e-4
     for k in range(max_iter):
         w_prev = np.copy(w)
         g = obj_fn.grad(X, y, w)
-        if ls_alpha is not None and ls_beta is not None:
-            stepsize, direction = helpers.linesearch(
-                obj_fn, X, y, w, stepsize, ls_alpha, ls_beta, g, H
-            )
-        else:
-            direction = np.dot(H, g)
-        print(f'Stepsize: {stepsize}')
+        direction = np.dot(H, g)
     
         # Newton-method style weight update
         w -= stepsize*direction
@@ -174,7 +161,6 @@ def BFGS(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5, ls_alpha=1e-4
 
         # precision check for stopping condition
         current_objval, prev_objval = obj_fn(X, y, w), obj_fn(X, y, wtab[k])
-        print(f'Current: {current_objval}, Previous: {prev_objval}')
         if helpers.bfgs_stopcondition(current_objval, prev_objval, stopping_eps):
             print(f"BFGS optimiser: stopping condition reached at iteration {k}\n")
             break
@@ -189,7 +175,7 @@ def BFGS(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5, ls_alpha=1e-4
     return w, wtab
 
 
-def LBFGS(X, y, w, obj_fn, max_iter, smoothness, memory_size=10, stopping_eps=1e-5, ls_alpha=0.1, ls_beta=0.9):
+def LBFGS(X, y, w, obj_fn, max_iter, smoothness, memory_size=10, stopping_eps=1e-5):
     """
     This is a variant of the BFGS algorithm adapted for storage efficiency - it uses an implicit 
     representation of the update term for the Hessian approximation that gives it a linear memory
@@ -207,8 +193,6 @@ def LBFGS(X, y, w, obj_fn, max_iter, smoothness, memory_size=10, stopping_eps=1e
     for k in range(max_iter):
         w_prev = np.copy(w)
         g = obj_fn.grad(X, y, w)
-        if ls_alpha is not None and ls_beta is not None:
-            stepsize, _ = helpers.linesearch(obj_fn, X, y, w, stepsize, ls_alpha, ls_beta, g, H)
         w -= stepsize*z
         disp[k%memory_size] = w-w_prev
         grad_disp[k%memory_size] = obj_fn(X, y, w)-g
@@ -230,7 +214,7 @@ def LBFGS(X, y, w, obj_fn, max_iter, smoothness, memory_size=10, stopping_eps=1e
     return w, wtab
 
 
-def SLBFGS(X, y, w, obj_fn, max_iter, smoothness, n_updates, memory_size, n_curve_updates, batch_size_grad, batch_size_hess, stopping_eps=1e-5, ls_alpha=0.1, ls_beta=0.9):
+def SLBFGS(X, y, w, obj_fn, max_iter, smoothness, n_updates, memory_size, n_curve_updates, batch_size_grad, batch_size_hess, stopping_eps=1e-5):
     """
     Stochastic BFGS algorithm implementation with limited memory constraint, as introduced by
     Moritz et al in the AISTAT 2016 paper 'A Linearly-Convergent Stochastic L-BFGS Algorithm'
