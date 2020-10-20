@@ -1,4 +1,5 @@
 import numpy as np
+from warnings import warn
 
 
 def check_input_dims(X, y, w):
@@ -8,17 +9,6 @@ of samples in y ({y.shape[0]})""")
     if X.shape[1] != w.shape[0]:
         raise ValueError(f"""Dimension of X ({X.shape[1]}) doesn't match the dimension of w
 ({w.shape[0]})""")
-
-
-def linesearch(obj_fn, X, y, w, stepsize, alpha, beta, grad, hess=None, gh=None):
-    # Wolfe line search
-    if hess is None:
-        hess = obj_fn.hess(X, y, w)
-    gH_product = np.linalg.solve(hess, grad) if gh is None else gh
-    while obj_fn(X, y, w+stepsize*gH_product) > obj_fn(X, y, w)+alpha*stepsize*np.dot(grad, gH_product):
-        stepsize *= beta
-
-    return stepsize, gH_product
 
 
 def bfgs_hessapprox_update(H, s, t):
@@ -35,7 +25,7 @@ def bfgs_hessapprox_update(H, s, t):
             res = (np.dot(np.outer(s, t), H)+np.dot(H, np.outer(t, s)))/d+\
                 np.outer(s, s)*(1+np.dot(t, np.dot(H, t)))/d**2
         except RuntimeWarning:
-            print("""*solvers msg*: Invalid value(s) encountered in BFGS update, returning newly initialised Hessian estimation""")
+            warn('Invalid value(s) encountered in BFGS update, reverting to newly initialised Hessian estimation', RuntimeWarning)
             res = np.eye(H.shape)
 
     return res
