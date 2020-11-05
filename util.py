@@ -11,13 +11,35 @@ of samples in y ({y.shape[0]})""")
 ({w.shape[0]})""")
 
 
+def logistic_stable(x):
+    """
+    Implementation of the logistic function
+        f(x) = 1 / (1 + exp(-x))
+    that avoids numerical overflow in the exponential
+
+    See http://fa.bianp.net/blog/2013/numerical-optimizers-for-logistic-regression/
+    """
+    try:
+        d = len(x)
+    except TypeError:
+        return 1./(1.+np.exp(-x)) if x > 0. else np.exp(x)/(1.+np.exp(x))
+
+    ret = np.empty(d, dtype=np.float)
+    pos_idx = x > 0.
+    ret[pos_idx] = 1./(1.+np.exp(-x[pos_idx]))
+    e_tmp = np.exp(x[~pos_idx])
+    ret[~pos_idx] = e_tmp/(1.+e_tmp)
+
+    return ret
+
+
 def bfgs_hessapprox_update(H, s, t):
     """
     Hessian approximation update used in the BFGS method and the first few iterations of the
     limited-memory BFGS implementations.
     """
     d = np.dot(t, s)
-    if d == 0.0:
+    if d == 0.:
         # pass empty object back to the gradient method scope to trigger a TypeError in the update
         res = None
     else:
@@ -31,7 +53,7 @@ def bfgs_hessapprox_update(H, s, t):
     return res
 
 
-bfgs_stopcondition = lambda current, previous, epsilon: np.abs(current-previous) <= epsilon*np.max((previous, current, 1.0))
+bfgs_stopcondition = lambda current, previous, epsilon: np.abs(current-previous) <= epsilon*np.max((previous, current, 1.))
 
 
 def lbfgs_recursion(iter_, memory_size, grad, dim, disp, grad_disp):

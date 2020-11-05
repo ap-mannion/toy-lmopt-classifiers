@@ -1,5 +1,5 @@
 import numpy as np
-import helpers
+import util
 import solvers
 import kernels
 
@@ -12,12 +12,17 @@ class LogisticLoss:
 
     def __call__(self, X, y, w):
         loss = np.log(1+np.exp(-y*np.dot(X, w)))
-        if self.l1 != 0.0:
-            loss += self.l1*np.linalg.norm(w, 1)
-        if self.l2 != 0.0:
-            loss += 0.5*self.l2*np.linalg.norm(w, 2)
+
+        logistic_input = y*np.dot(X, w)
+        log_term = np.empty_like(logistic_input)
+        pos_idx = logistic_input > 0
+        log_term[pos_idx] = -np.log(1.0+np.exp(-logistic_input[pos_idx]))
+        log_term[~pos_idx] = logistic_input[~pos_idx]-np.log(1.0+np.exp(logistic_input[~pos_idx]))
         
-        return np.mean(loss)
+        l1reg = self.l1*np.linalg.norm(w, 1) if self.l1 != 0.0 else 0.0
+        l2reg = 0.5*self.l2*np.linalg.norm(w, 2) if self.l2 != 0.0 else 0.0
+        
+        return -1.0*np.mean(loss)+l1reg+l2reg
 
     def grad(self, X, y, w, batch=None):
         """
@@ -25,23 +30,17 @@ class LogisticLoss:
         To calculate a mini-batch gradient, use the 'batch' argument to pass a list of indices to select,
         or a single integer to take the gradient at one data point only
         """
-        helpers.check_input_dims(X, y, w)
+        util.check_input_dims(X, y, w)
         if batch is not None:
             X, y = X[batch], y[batch]
 
-        exparg = np.dot(X, w)
-        while np.linalg.norm([exparg], np.inf) > 10:
-            # scale down the product term if it's too big to take the exponential
-            exparg *= 0.1
-        fracterm = -y/(1+np.exp(y*exparg))
-        if len(fracterm.shape) > 1:
-            fracterm = np.sum(np.diag(fracterm), 1)
-        if type(batch) is not int:
-            fracterm /= len(y)
+        logistic_term = y*(util.logistic_stable(y*np.dot(X, w))-1)
         if len(X.shape) == 1:
-            res = fracterm*X
+            res = logistic_term*X
         else:
-            res = fracterm@X
+            res = logistic_term@X
+        if type(batch) is not int:
+            res /= len(y)
 
         return res+self.l2*w
 
@@ -50,26 +49,32 @@ class LogisticLoss:
         Calculates the Hessian matrix of the loss for the given classifier weights.
         Mini-batches can be implemented similarly as for the grad function.
         """
-        helpers.check_input_dims(X, y, w)
+        util.check_input_dims(X, y, w)
         if batch is not None:
             X, y = X[batch], y[batch]
-
-        def _hessmat(X, y):
-            expterm = np.exp(-y*np.dot(X, w))
-            return (expterm/(1+expterm)**2)*np.outer(X, X)
-
         n = len(y) if type(y) not in {int, np.int64} else 1
-        reg = self.l2
-        if n > 1:
-            d = X.shape[1]
-            res = np.zeros((d, d))
-            reg *= np.eye(d, d)
-            for i in range(n):
-                res += _hessmat(X[i,:], y[i])               
-        else:
-            res = _hessmat(X, y)
+
+        logistic_terms = util.logistic_stable(y*np.dot(X, w))
+        diag_terms = logistic_terms/(1-logistic_terms)
+        D = diag_terms*np.eye(n)
+        hessmat = np.dot(X, np.dot(D, X))
+
+        # def _hessmat(X, y):
+        #     expterm = np.exp(-y*np.dot(X, w))
+        #     return (expterm/(1+expterm)**2)*np.outer(X, X)
+
         
-        return res+reg
+        # reg = self.l2
+        # if n > 1:
+        #     d = X.shape[1]
+        #     res = np.zeros((d, d))
+        #     reg *= np.eye(d, d)
+        #     for i in range(n):
+        #         res += _hessmat(X[i,:], y[i])               
+        # else:
+        #     res = _hessmat(X, y)
+        
+        return hessmat+self.l2*np.eye(hessmat.shape[0])
 
 
 class HingeLoss:
@@ -100,7 +105,7 @@ class HingeLoss:
         return np.sum(loss)+0.5*self.l2*np.linalg.norm(w, 2)
 
     def grad(self, X, y, w, batch=None):
-        helpers.check_input_dims(X, y, w)
+        util.check_input_dims(X, y, w)
         if batch is not None:
             X, y = X[batch], y[batch]
 
