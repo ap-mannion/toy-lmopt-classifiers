@@ -11,13 +11,16 @@ of samples in y ({y.shape[0]})""")
 ({w.shape[0]})""")
 
 
+smoothness = lambda X, l2: 0.25*max(np.linalg.norm(X, 2, axis=1))**2+l2
+
+
 def logistic_stable(x):
     """
     Implementation of the logistic function
         f(x) = 1 / (1 + exp(-x))
     that avoids numerical overflow in the exponential
 
-    See http://fa.bianp.net/blog/2013/numerical-optimizers-for-logistic-regression/
+    ref. http://fa.bianp.net/blog/2013/numerical-optimizers-for-logistic-regression/
     """
     try:
         d = len(x)
@@ -26,6 +29,7 @@ def logistic_stable(x):
 
     ret = np.empty(d, dtype=np.float)
     pos_idx = x > 0.
+
     ret[pos_idx] = 1./(1.+np.exp(-x[pos_idx]))
     e_tmp = np.exp(x[~pos_idx])
     ret[~pos_idx] = e_tmp/(1.+e_tmp)

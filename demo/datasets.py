@@ -26,6 +26,8 @@ def load_student_data(file_path=None, target_dir=None, split=0.25):
         file_path = path.join(target_path, 'student-mat.csv')
     
     df = pd.read_csv(file_path)
+    if len(df.columns) == 1:
+        df = pd.read_csv(file_path, sep=';')
 
     target_data = pd.DataFrame(df.G3).applymap(lambda grade: [-1, 1][grade >= 12])
     

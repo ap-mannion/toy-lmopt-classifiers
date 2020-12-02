@@ -87,7 +87,8 @@ This can be very slow for long sequences with high-dimensional frequency spaces"
 
                     res = sim_fn(_tonp(count_a), _tonp(count_b), **sf_params)
                 except:
-                    raise TypeError("""Bad input for similarity function: must take either dictionaries representing sparse matrices or numpy arrays""")
+                    raise TypeError("""Similarity function must take dictionary representations of sparse matrices, scipy.sparse.csr_matrix objects
+or numpy arrays""")
 
     return res             
                     

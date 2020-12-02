@@ -21,11 +21,12 @@ def main(args):
             fit_kwargs['strong_convexity'] = args.sconv
         elif solver == 'slbfgs':
             fit_kwargs['n_updates'] = 10
-            fit_kwargs['memory_sixe'] = 10
+            fit_kwargs['memory_size'] = 10
             fit_kwargs['n_curve_updates'] = 10
             fit_kwargs['batch_size_grad'] = 32
             fit_kwargs['batch_size_hess'] = 32
 
+        print(f'fitting {solver}\n')
         model.fit(X_train, y_train, **fit_kwargs)
 
     learning_curve(**lr_models)

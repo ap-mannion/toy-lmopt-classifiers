@@ -1,8 +1,11 @@
 import numpy as np
-import helpers
+import util
+# TODO:
+#   - debug BFGS stopping conditions
+#   - add SVRG option to update gradient with a randomly chosen inner-loop step
+#   - proximal operators (not optional for SGD and SAGA)
 
-
-def GD(X, y, w, obj_fn, max_iter, smoothness):
+def GD(X, y, w, obj_fn, max_iter):
     """
     Basic gradient descent implementation.
 
@@ -29,7 +32,8 @@ def GD(X, y, w, obj_fn, max_iter, smoothness):
     wtab: numpy.ndarray
         table of all the iterates
     """
-    helpers.check_input_dims(X, y, w)
+    util.check_input_dims(X, y, w)
+    smoothness = util.smoothness(X, obj_fn.l2)
     stepsize = 1.0/smoothness
     wtab = np.copy(w)
 
@@ -40,7 +44,7 @@ def GD(X, y, w, obj_fn, max_iter, smoothness):
     return w, wtab
 
 
-def SGD(X, y, w, obj_fn, max_iter, smoothness, force_complete_pass=False):
+def SGD(X, y, w, obj_fn, max_iter, force_complete_pass=False):
     """
     Stochastic Gradient Descent
     The boolean argument `force_complete_pass` can be set to true to make the algorithm use each
@@ -49,8 +53,8 @@ def SGD(X, y, w, obj_fn, max_iter, smoothness, force_complete_pass=False):
     the number of data points iterated over, rather than the number of passes over the dataset as
     in the vanilla gradient descent implementation).
     """
-    helpers.check_input_dims(X, y, w)
-    w = w
+    util.check_input_dims(X, y, w)
+    smoothness = util.smoothness(X, obj_fn.l2)
     wtab = np.copy(w)
     n = len(y)
 
@@ -58,7 +62,7 @@ def SGD(X, y, w, obj_fn, max_iter, smoothness, force_complete_pass=False):
         indices = np.arange(n)
         np.random.shuffle(indices)
     for k in range(max_iter):
-        stepsize = 1.0/(smoothness*(int(1+k/n)**0.6))
+        stepsize = 1./(smoothness*(int(1+k/n)**.6))
         i = np.random.randint(n) if not force_complete_pass else indices[k%n]
         w -= stepsize*obj_fn.grad(X, y, w, i)
         if k%n == 0: # full pass over n data samples
@@ -69,39 +73,47 @@ def SGD(X, y, w, obj_fn, max_iter, smoothness, force_complete_pass=False):
     return w, wtab
 
 
-def SAGA(X, y, w, obj_fn, max_iter, smoothness, strong_convexity):
+def SAGA(X, y, w, obj_fn, max_iter, strong_convexity=None):
     """
     Implementation of the SAGA gradient method introduced in the 2007 paper 'SAGA: A Fast
     Incremental Gradient Method with Support for Non-Strongly Convex Composite Objectives'
     (arXiv:1407.0202)
     """
-    helpers.check_input_dims(X, y, w)
-    wtab = np.copy(w)
+    util.check_input_dims(X, y, w)
     n = len(y)
-    stepsize = 1/(2*strong_convexity*n+smoothness)
+    smoothness = util.smoothness(X, obj_fn.l2)
+    if strong_convexity is None:
+        strong_convexity = obj_fn.l2
+    stepsize = 1/(2*(strong_convexity*n+smoothness))
+
+    wtab = np.copy(w)
     gtab = np.vstack(tuple(obj_fn.grad(X, y, w, i) for i in range(n)))
 
     for k in range(max_iter):
         j = np.random.randint(n)
-        w -= stepsize*(obj_fn.grad(X, y, w, j)-gtab[j]+np.sum(gtab)/n)
+        w -= stepsize*(obj_fn.grad(X, y, w, j)-gtab[j]+np.mean(gtab, axis=0))
         if k%n == 0: # add to iteration storage every n iterations
             wtab = np.vstack((wtab, w))
 
     return w, wtab
 
 
-def SVRG(X, y, w, obj_fn, max_iter, smoothness, strong_convexity):
+def SVRG(X, y, w, obj_fn, max_iter, strong_convexity=None):
     """
     Stochastic Variance-Reduced Gradient method, from the paper 'Accelerating Stochastic
     Gradient Descent using Predictive Variance Reduction', published in NIPS 2013
     """
-    helpers.check_input_dims(X, y, w)
-    n = X.shape[0]
+    util.check_input_dims(X, y, w)
+    smoothness = util.smoothness(X, obj_fn.l2)
+    if strong_convexity is None:
+        strong_convexity = obj_fn.l2
     M = int(1.1*smoothness/strong_convexity)
+    stepsize = .1/smoothness
+
     wtab = np.copy(w)
 
-    for k in range(max_iter):
-        stepsize = 1.0/(smoothness*(int(1+k/n)**0.6))
+    k = 0
+    while k < max_iter:
         v0 = w
         v = np.copy(v0)
         grad_tmp = obj_fn.grad(X, y, v)
@@ -110,11 +122,12 @@ def SVRG(X, y, w, obj_fn, max_iter, smoothness, strong_convexity):
             v -= stepsize*(obj_fn.grad(X, y, v, i)-obj_fn.grad(X, y, v0, i)+grad_tmp)
         w = v
         wtab = np.vstack((wtab, w))
+        k += 1
 
     return w, wtab
 
 
-def NM(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5):
+def NM(X, y, w, obj_fn, max_iter, stopping_eps=1e-5):
     """
     Newton's method for logistic regression. The args `X`, `y`, `w`, `obj_fn`, `max_iter`, and
     `smoothness` have the same definitions as for gradient descent. If either of the line search 
@@ -125,9 +138,11 @@ def NM(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5):
     stopping_eps:  float
         Precision to be used in the stopping rule
     """
-    helpers.check_input_dims(X, y, w)
-    wtab = np.copy(w)
+    util.check_input_dims(X, y, w)
+    smoothness = util.smoothness(X, obj_fn.l2)
     stepsize = 1.0/smoothness
+    
+    wtab = np.copy(w)
 
     for _ in range(max_iter):
         g = obj_fn.grad(X, y, w)
@@ -145,7 +160,8 @@ def BFGS(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5):
     Implementation of the Broyden-Fletcher-Goldfarb-Shanno algorithm, a type of quasi-Newton method,
     with the stopping rule based on the absolute change in the value of the objective function
     """
-    helpers.check_input_dims(X, y, w)
+    #dbnorm = lambda x: round(np.linalg.norm(x, 2), 4)
+    util.check_input_dims(X, y, w)
     wtab = np.copy(w)
     H = np.eye(w.size) # initialise Hessian approximation
     stepsize = 1.0/smoothness
@@ -154,20 +170,24 @@ def BFGS(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5):
         w_prev = np.copy(w)
         g = obj_fn.grad(X, y, w)
         direction = np.dot(H, g)
+        #print(f"\nIteration {k}: 2-norms; g:{dbnorm(g)}, d:{dbnorm(direction)}")
     
         # Newton-method style weight update
         w -= stepsize*direction
         wtab = np.vstack((wtab, w))
+        #print(f"Updated weight vector norm: {dbnorm(w)}")
 
         # precision check for stopping condition
         current_objval, prev_objval = obj_fn(X, y, w), obj_fn(X, y, wtab[k])
-        if helpers.bfgs_stopcondition(current_objval, prev_objval, stopping_eps):
+        #print(f"Stopping condition check: current={current_objval}, previous={prev_objval}")
+        if util.bfgs_stopcondition(current_objval, prev_objval, stopping_eps):
             print(f"BFGS optimiser: stopping condition reached at iteration {k}\n")
             break
 
         # update Hessian approximation
         try:
-            H -= helpers.bfgs_hessapprox_update(H, w-w_prev, obj_fn.grad(X, y, w)-g)
+            H -= util.bfgs_hessapprox_update(H, w-w_prev, obj_fn.grad(X, y, w)-g)
+            #print(f"Updated Hessian norm={dbnorm(H)}")
         except TypeError:
             print(f"BFGS optimiser: Zero-displacement curvature at iteration {k} Hessian update: stopping descent")
             break
@@ -182,7 +202,7 @@ def LBFGS(X, y, w, obj_fn, max_iter, smoothness, memory_size=10, stopping_eps=1e
     requirement. It keeps a record of previous updates of the gradient and directly approximates
     the Hessian-gradient product instead of storing separate versions of both
     """
-    helpers.check_input_dims(X, y, w)
+    util.check_input_dims(X, y, w)
     wtab = np.copy(w)
     stepsize = 1.0/smoothness
     p = w.size
@@ -198,16 +218,16 @@ def LBFGS(X, y, w, obj_fn, max_iter, smoothness, memory_size=10, stopping_eps=1e
         grad_disp[k%memory_size] = obj_fn(X, y, w)-g
         if k < memory_size:
             try:
-                H -= helpers.bfgs_hessapprox_update(H, disp[k], grad_disp[k])
+                H -= util.bfgs_hessapprox_update(H, disp[k], grad_disp[k])
             except TypeError:
                 print("L-BFGS optimiser: Zero-displacement curvature caught at iteration {k} Hessian update: stopping descent")
                 break
             z = np.dot(H, g)
         else:
-            z = helpers.lbfgs_recursion(k, memory_size, g, p, disp, grad_disp)
+            z = util.lbfgs_recursion(k, memory_size, g, p, disp, grad_disp)
         wtab = np.vstack((wtab, w))
         current_objval, prev_objval = obj_fn(X, y, w), obj_fn(X, y, wtab[k-1])
-        if helpers.bfgs_stopcondition(current_objval, prev_objval, stopping_eps):
+        if util.bfgs_stopcondition(current_objval, prev_objval, stopping_eps):
             print(f"L-BFGS optimiser: stopping condition reached at iteration {k}\n")
             break
 
@@ -255,7 +275,7 @@ def SLBFGS(X, y, w, obj_fn, max_iter, smoothness, n_updates, memory_size, n_curv
 
             if i%n_curve_updates == 0:
                 x_prev = np.copy(x)
-                x = np.mean(vtab, 0)
+                x = np.mean(vtab, 0)#.reshape(p, 1) # reshape for dot product in Hessian
                 disp[r] = x-x_prev
 
                 # update gradient-Hessian product approximation
@@ -267,17 +287,17 @@ def SLBFGS(X, y, w, obj_fn, max_iter, smoothness, n_updates, memory_size, n_curv
 
                 if r < memory_size: # first `filling` of the memory with product estimations
                     try:
-                        H -= helpers.bfgs_hessapprox_update(H, disp[r], grad_disp[r])
+                        H -= util.bfgs_hessapprox_update(H, disp[r], grad_disp[r])
                     except TypeError:
-                        print("Stochastic L-BFGS optimiser: Zero-displacement curvature caught at iteration {k} Hessian update: stopping descent")
+                        print(f"Stochastic L-BFGS optimiser: Zero-displacement curvature caught at iteration {k} Hessian update: stopping descent")
                         break
                 else:
-                    H = helpers.lbfgs_recursion(r, memory_size, obj_fn.grad(X, y, x), p, disp, grad_disp)
+                    H = util.lbfgs_recursion(r, memory_size, obj_fn.grad(X, y, x), p, disp, grad_disp)
                 r += 1
         w = vtab[np.random.randint(n_updates)]
         wtab = np.vstack((wtab, w))
         current_objval, prev_objval = obj_fn(X, y, w), obj_fn(X, y, wtab[k-1])
-        if helpers.bfgs_stopcondition(current_objval, prev_objval, stopping_eps):
+        if util.bfgs_stopcondition(current_objval, prev_objval, stopping_eps):
             print(f"Stochastic L-BFGS optimiser: stopping condition reached at iteration {k}\n")
             break
     
@@ -288,12 +308,15 @@ def QP_KSVM(X, y, soft_margin_coef=1.0, kernel_fn=None, **kernelparams):
     """
     Uses cvxopt to find the optimal SVM hyperplane by solving the dual optimisation problem
     as a quadratic program - the solver returns the Lagrange multipliers of the dual
-    problem. This function will return the hyperplane weights only in the linear kernel
+    problem.
+    
+    This function will return the hyperplane weights only in the linear kernel
     case, otherwise it will return the Lagrange multipliers, as computing the hyperplane
-    explicitly requires projecting into the feature space implicit in the kernel; for all
-    non-trivial kernels, the hyperplane will be computed implicitly in the inner product
-    space at prediction time. The `soft_margin_coef` argument can be set to None to do
-    hard-margin classification.
+    explicitly requires projecting into the feature space on which the kernel can be defined
+    as an inner product; for all non-trivial kernels, the hyperplane will be computed implicitly
+    in the inner product space at prediction time.
+    
+    The `soft_margin_coef` argument can be set to None to do hard-margin classification.
     """
     from cvxopt import matrix
     from cvxopt.solvers import qp, options
@@ -303,7 +326,7 @@ def QP_KSVM(X, y, soft_margin_coef=1.0, kernel_fn=None, **kernelparams):
         kernel_fn = kernels.linear
     
     n = X.shape[0]
-    K = helpers.gram(X, kernel_fn, **kernelparams)
+    K = util.gram(X, kernel_fn, **kernelparams)
     
     I = np.eye(n)
     G, h = matrix(-1*I), np.zeros(n)

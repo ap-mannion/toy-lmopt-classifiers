@@ -3,6 +3,8 @@ import util
 import solvers
 import kernels
 
+#TODO:
+#   - proximal functions
 
 class LogisticLoss:
 
@@ -10,19 +12,17 @@ class LogisticLoss:
         self.l1 = l1
         self.l2 = l2
 
-    def __call__(self, X, y, w):
-        loss = np.log(1+np.exp(-y*np.dot(X, w)))
-
+    def __call__(self, w, X, y):
         logistic_input = y*np.dot(X, w)
         log_term = np.empty_like(logistic_input)
-        pos_idx = logistic_input > 0
+        pos_idx = logistic_input > 0.
         log_term[pos_idx] = -np.log(1.0+np.exp(-logistic_input[pos_idx]))
         log_term[~pos_idx] = logistic_input[~pos_idx]-np.log(1.0+np.exp(logistic_input[~pos_idx]))
         
         l1reg = self.l1*np.linalg.norm(w, 1) if self.l1 != 0.0 else 0.0
         l2reg = 0.5*self.l2*np.linalg.norm(w, 2) if self.l2 != 0.0 else 0.0
         
-        return -1.0*np.mean(loss)+l1reg+l2reg
+        return -1.0*np.mean(log_term)+l1reg+l2reg
 
     def grad(self, X, y, w, batch=None):
         """
@@ -52,12 +52,13 @@ class LogisticLoss:
         util.check_input_dims(X, y, w)
         if batch is not None:
             X, y = X[batch], y[batch]
-        n = len(y) if type(y) not in {int, np.int64} else 1
+        if len(X.shape) == 1:
+            X.shape = (1, X.shape[0])
 
         logistic_terms = util.logistic_stable(y*np.dot(X, w))
         diag_terms = logistic_terms/(1-logistic_terms)
-        D = diag_terms*np.eye(n)
-        hessmat = np.dot(X, np.dot(D, X))
+        D = np.diag(np.ravel(diag_terms))
+        hessmat = np.dot(X.T, np.dot(D, X))
 
         # def _hessmat(X, y):
         #     expterm = np.exp(-y*np.dot(X, w))
@@ -143,11 +144,9 @@ class LinearModel:
         except AttributeError:
             raise NameError('Invalid solver name')
 
-        self.loss = LogisticLoss() if loss_fn == 'logistic' else HingeLoss()
+        self.loss = LogisticLoss(l1, l2) if loss_fn == 'logistic' else HingeLoss(l2)
         self.solver = chosen_solver
         self.svmkernel = getattr(kernels, svmkernel) if loss_fn == 'hinge' else None
-        self.l1 = l1
-        self.l2 = l2
         self.max_iter = max_iter
         self.use_cvxopt_wrap_format = loss_fn == 'hinge' and solver == 'qp_ksvm'
 
