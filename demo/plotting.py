@@ -24,4 +24,4 @@ def get_curve(X, y, model):
     if not hasattr(model, '_weights'):
         raise BaseException('Model has not been fitted yet')
 
-    return [model.loss(X, y, w) for w in model._wtab]
+    return [model.loss(w, X, y) for w in model._wtab]
