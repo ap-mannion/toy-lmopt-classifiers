@@ -2,13 +2,13 @@ import numpy as np
 import util
 import solvers
 import kernels
-
-#TODO:
-#   - proximal functions
+# TODO:
+#   - intercept terms in loss functions
+#   - debug hinge GD
 
 class LogisticLoss:
 
-    def __init__(self, l1=0.0, l2=0.0):
+    def __init__(self, l1=0., l2=0.):
         self.l1 = l1
         self.l2 = l2
 
@@ -16,13 +16,13 @@ class LogisticLoss:
         logistic_input = y*np.dot(X, w)
         log_term = np.empty_like(logistic_input)
         pos_idx = logistic_input > 0.
-        log_term[pos_idx] = -np.log(1.0+np.exp(-logistic_input[pos_idx]))
-        log_term[~pos_idx] = logistic_input[~pos_idx]-np.log(1.0+np.exp(logistic_input[~pos_idx]))
+        log_term[pos_idx] = -np.log(1.+np.exp(-logistic_input[pos_idx]))
+        log_term[~pos_idx] = logistic_input[~pos_idx]-np.log(1.+np.exp(logistic_input[~pos_idx]))
         
-        l1reg = self.l1*np.linalg.norm(w, 1) if self.l1 != 0.0 else 0.0
-        l2reg = 0.5*self.l2*np.linalg.norm(w, 2) if self.l2 != 0.0 else 0.0
+        l1reg = self.l1*np.linalg.norm(w, 1) if self.l1 != 0. else 0.
+        l2reg = 0.5*self.l2*np.dot(w, w) if self.l2 != 0. else 0.
         
-        return -1.0*np.mean(log_term)+l1reg+l2reg
+        return -np.mean(log_term)+l1reg+l2reg
 
     def grad(self, X, y, w, batch=None):
         """
@@ -83,7 +83,7 @@ class HingeLoss:
     def __init__(self, l2=0.05):
         self.l2 = l2
 
-    def __call__(self, X, y, w):
+    def __call__(self, w, X, y):
         """
         Calculates the hinge loss for the given data & classification weights
 
@@ -96,14 +96,10 @@ class HingeLoss:
         w : numpy.ndarray
             Weights calculated by the classifier, size p x 1
         """
-        if len(w.shape) == 1:
-            w = w.reshape((len(w), 1))
         n = X.shape[0]
-        loss = np.empty(n)
-        for i in range(n):
-            loss[i] = max(0.0, 1.0-y[i]*np.dot(X[i,:], w))
+        loss = np.array([max(0., 1.-y[i]*np.dot(X[i], w)) for i in range(n)])
 
-        return np.sum(loss)+0.5*self.l2*np.linalg.norm(w, 2)
+        return np.sum(loss)+.5*self.l2*np.dot(w, w)
 
     def grad(self, X, y, w, batch=None):
         util.check_input_dims(X, y, w)
@@ -111,9 +107,9 @@ class HingeLoss:
             X, y = X[batch], y[batch]
 
         try:
-            res = np.empty(X.shape)
+            res = np.empty_like(X)
             for i in range(X.shape[0]):
-                res[i,:] = -y[i]*X[i,:] if y[i]*np.dot(X[i,:], w) >= 1 else np.zeros(X.shape[1])
+                res[i,:] = -y[i]*X[i] if y[i]*np.dot(X[i], w) >= 1 else np.zeros(X.shape[1])
         except IndexError:
             res = -y*X if y*np.dot(X, w) < 1 else np.zeros(len(w))
 
@@ -122,7 +118,7 @@ class HingeLoss:
 
 class LinearModel:
 
-    def __init__(self, loss_fn, solver, svmkernel=None, l1=0.0, l2=0.01, max_iter=100):
+    def __init__(self, loss_fn, solver, svmkernel=None, l1=.01, l2=.01, max_iter=100):
         losses = {'logistic', 'hinge'}
         
         if loss_fn not in losses:
@@ -150,7 +146,7 @@ class LinearModel:
         self.max_iter = max_iter
         self.use_cvxopt_wrap_format = loss_fn == 'hinge' and solver == 'qp_ksvm'
 
-    def fit(self, X, y, random_init=False, **solver_kwargs):
+    def fit(self, X, y, use_prox=False, random_init=False, **solver_kwargs):
         """
         Fits the model to the training data X and labels y by minimising the empirical risk using the
         specified loss function & regularisation coefficients
@@ -166,7 +162,7 @@ class LinearModel:
             self._weights, self._bias = self.solver(X, y, kernel_fn=self.svmkernel, **solver_kwargs)
         
         if self._weights.size == X.shape[1]: # check that it's not kernel SVM
-            self.loss_val = self.loss(X, y, self._weights)
+            self.loss_val = self.loss(self._weights, X, y)
 
     def decision_function(self, X):
         """
