@@ -3,9 +3,8 @@ import util
 # TODO:
 #   - debug BFGS stopping conditions
 #   - add SVRG option to update gradient with a randomly chosen inner-loop step
-#   - proximal operators (not optional for SGD and SAGA)
 
-def GD(X, y, w, obj_fn, max_iter):
+def GD(X, y, w, obj_fn, max_iter, use_prox=False):
     """
     Basic gradient descent implementation.
 
@@ -22,8 +21,6 @@ def GD(X, y, w, obj_fn, max_iter):
     max_iter: int
         Number of iterations (i.e. number of descent steps), in this case, one iteration is one
         epoch i.e, one pass through the data.
-    smoothness: float
-        Smoothness constant of the objective function
 
     Returns
     -------
@@ -33,42 +30,41 @@ def GD(X, y, w, obj_fn, max_iter):
         table of all the iterates
     """
     util.check_input_dims(X, y, w)
-    smoothness = util.smoothness(X, obj_fn.l2)
-    stepsize = 1.0/smoothness
+    stepsize = 1./util.smoothness(X, obj_fn.l2)
     wtab = np.copy(w)
 
     for _ in range(max_iter):
-        w -= stepsize*obj_fn.grad(X, y, w)
+        if use_prox:
+            w = util.prox(w-stepsize*obj_fn.grad(X, y, w), stepsize*obj_fn.l1)
+        else:
+            w -= stepsize*obj_fn.grad(X, y, w)
         wtab = np.vstack((wtab, w))
 
     return w, wtab
 
 
-def SGD(X, y, w, obj_fn, max_iter, force_complete_pass=False):
+def SGD(X, y, w, obj_fn, max_iter, use_prox=False):
     """
     Stochastic Gradient Descent
-    The boolean argument `force_complete_pass` can be set to true to make the algorithm use each
-    data point exactly once in each pass over the data: max_iter should normally be set to some
-    integer multiple of the number of samples (note that for this algorithm `max_iter` controls
-    the number of data points iterated over, rather than the number of passes over the dataset as
-    in the vanilla gradient descent implementation).
+    `max_iter` should normally be set to some integer multiple of the number of samples (note that
+    for this algorithm it controls the number of data points iterated over, rather than the number
+    of passes over the dataset (epochs) as in the vanilla gradient descent implementation).
     """
     util.check_input_dims(X, y, w)
     smoothness = util.smoothness(X, obj_fn.l2)
     wtab = np.copy(w)
     n = len(y)
 
-    if force_complete_pass:
-        indices = np.arange(n)
-        np.random.shuffle(indices)
     for k in range(max_iter):
         stepsize = 1./(smoothness*(int(1+k/n)**.6))
-        i = np.random.randint(n) if not force_complete_pass else indices[k%n]
-        w -= stepsize*obj_fn.grad(X, y, w, i)
-        if k%n == 0: # full pass over n data samples
+        i = np.random.randint(n)
+        update = stepsize*obj_fn.grad(X, y, w, i)
+        if use_prox:
+            w = util.prox(w-update, stepsize*obj_fn.l1)
+        else:
+            w -= update
+        if k%n == 0: # 1 epoch = n iterations
             wtab = np.vstack((wtab, w))
-            if force_complete_pass:
-                np.random.shuffle(indices)
 
     return w, wtab
 
@@ -87,18 +83,19 @@ def SAGA(X, y, w, obj_fn, max_iter, strong_convexity=None):
     stepsize = 1/(2*(strong_convexity*n+smoothness))
 
     wtab = np.copy(w)
-    gtab = np.vstack(tuple(obj_fn.grad(X, y, w, i) for i in range(n)))
+    gtab = np.vstack([obj_fn.grad(X, y, w, i) for i in range(n)])
 
     for k in range(max_iter):
         j = np.random.randint(n)
-        w -= stepsize*(obj_fn.grad(X, y, w, j)-gtab[j]+np.mean(gtab, axis=0))
-        if k%n == 0: # add to iteration storage every n iterations
+        update_vec = obj_fn.grad(X, y, w, j)-gtab[j]+np.mean(gtab, axis=0)
+        w = util.prox(w-stepsize*update_vec, stepsize*.1)
+        if k%n == 0:
             wtab = np.vstack((wtab, w))
 
     return w, wtab
 
 
-def SVRG(X, y, w, obj_fn, max_iter, strong_convexity=None):
+def SVRG(X, y, w, obj_fn, max_iter, strong_convexity=None, use_prox=False):
     """
     Stochastic Variance-Reduced Gradient method, from the paper 'Accelerating Stochastic
     Gradient Descent using Predictive Variance Reduction', published in NIPS 2013
@@ -119,7 +116,11 @@ def SVRG(X, y, w, obj_fn, max_iter, strong_convexity=None):
         grad_tmp = obj_fn.grad(X, y, v)
         for _ in range(M):
             i = np.random.randint(len(y))
-            v -= stepsize*(obj_fn.grad(X, y, v, i)-obj_fn.grad(X, y, v0, i)+grad_tmp)
+            update_vec = obj_fn.grad(X, y, v, i)-obj_fn.grad(X, y, v0, i)+grad_tmp
+            if use_prox:
+                v = util.prox(v-stepsize*update_vec, stepsize*obj_fn.l1)
+            else:
+                v -= stepsize*update_vec
         w = v
         wtab = np.vstack((wtab, w))
         k += 1
@@ -130,8 +131,7 @@ def SVRG(X, y, w, obj_fn, max_iter, strong_convexity=None):
 def NM(X, y, w, obj_fn, max_iter, stopping_eps=1e-5):
     """
     Newton's method for logistic regression. The args `X`, `y`, `w`, `obj_fn`, `max_iter`, and
-    `smoothness` have the same definitions as for gradient descent. If either of the line search 
-    parameters are set to `None`, the algorithm will just use a constant step size
+    `smoothness` have the same definitions as for gradient descent.
 
     Parameters
     ----------
@@ -140,7 +140,7 @@ def NM(X, y, w, obj_fn, max_iter, stopping_eps=1e-5):
     """
     util.check_input_dims(X, y, w)
     smoothness = util.smoothness(X, obj_fn.l2)
-    stepsize = 1.0/smoothness
+    stepsize = 1./smoothness
     
     wtab = np.copy(w)
 

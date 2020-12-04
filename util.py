@@ -4,8 +4,8 @@ from warnings import warn
 
 def check_input_dims(X, y, w):
     if X.shape[0] != y.shape[0]:
-        raise ValueError(f"""Number of samples in X ({X.shape[0]}) doesn't match the number
-of samples in y ({y.shape[0]})""")
+        raise ValueError(f"""Number of samples ({X.shape[0]}) doesn't match the length of
+the target data vector ({y.shape[0]})""")
     if X.shape[1] != w.shape[0]:
         raise ValueError(f"""Dimension of X ({X.shape[1]}) doesn't match the dimension of w
 ({w.shape[0]})""")
@@ -35,6 +35,22 @@ def logistic_stable(x):
     ret[~pos_idx] = e_tmp/(1.+e_tmp)
 
     return ret
+
+
+def prox(w, c):
+    """
+    Proximal gradient operator
+    """
+    ret = []
+    for weight in w:
+        if weight < -c:
+            ret.append(weight+c)
+        elif abs(weight) <= c:
+            ret.append(0)
+        else:
+            ret.append(weight-c)
+
+    return np.array(ret)
 
 
 def bfgs_hessapprox_update(H, s, t):
