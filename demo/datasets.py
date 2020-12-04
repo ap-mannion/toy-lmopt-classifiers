@@ -29,6 +29,9 @@ def load_student_data(file_path=None, target_dir=None, split=0.25):
     if len(df.columns) == 1:
         df = pd.read_csv(file_path, sep=';')
 
+    # delete categorical features to be ignored
+    df.drop(['school', 'Mjob', 'Fjob', 'reason', 'guardian'], axis=1, inplace=True)
+
     target_data = pd.DataFrame(df.G3).applymap(lambda grade: [-1, 1][grade >= 12])
     
     # Encoding categorical values with numerical labels
@@ -38,7 +41,7 @@ def load_student_data(file_path=None, target_dir=None, split=0.25):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         normalised_features = add_dummy_feature(StandardScaler().fit_transform(numerical_features))
-    preprocessed_features = pd.DataFrame(normalised_features, columns=[ "intercept" ]+list(numerical_features.columns))
+    preprocessed_features = pd.DataFrame(normalised_features, columns=["intercept"]+list(numerical_features.columns))
 
     return train_test_split(np.array(preprocessed_features), np.ravel(target_data), test_size=split)
 
