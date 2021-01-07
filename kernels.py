@@ -16,7 +16,7 @@ def gaussian(a, b, variance, sigma=None):
     return np.exp(-1*np.linalg.norm(a-b)**2/(2*ssq))
 
 
-polynomial = lambda a, b, deg=3, intercept=0.0: (np.dot(a, b)+intercept)**deg
+polynomial = lambda a, b, deg=3, intercept=0.0: np.dot(a, b)**deg+intercept
 
 
 def spectrum(a, b, k, sim_fn=None, **sf_params):
@@ -75,7 +75,7 @@ def spectrum(a, b, k, sim_fn=None, **sf_params):
                 warn(f"""Provided similarity function {sim_fn.__name__} doesn't support sparse vector representations - trying with dense numpy arrays.
 This can be very slow for long sequences with high-dimensional frequency spaces""", RuntimeWarning)
                 try:
-                    def _tonp(fdict):
+                    def to_np(fdict):
                         l = []
                         for s, i in coords.items():
                             try:
@@ -85,7 +85,7 @@ This can be very slow for long sequences with high-dimensional frequency spaces"
 
                         return np.array(l)
 
-                    res = sim_fn(_tonp(count_a), _tonp(count_b), **sf_params)
+                    res = sim_fn(to_np(count_a), to_np(count_b), **sf_params)
                 except:
                     raise TypeError("""Similarity function must take dictionary representations of sparse matrices, scipy.sparse.csr_matrix objects
 or numpy arrays""")

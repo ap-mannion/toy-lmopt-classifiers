@@ -105,16 +105,15 @@ def SVRG(X, y, w, obj_fn, max_iter, strong_convexity=None, use_prox=False):
     if strong_convexity is None:
         strong_convexity = obj_fn.l2
     M = int(1.1*smoothness/strong_convexity)
-    stepsize = .1/smoothness
+    stepsize = 1./smoothness
 
     wtab = np.copy(w)
 
-    k = 0
-    while k < max_iter:
+    for _ in range(max_iter):
         v0 = w
         v = np.copy(v0)
         grad_tmp = obj_fn.grad(X, y, v)
-        for _ in range(M):
+        for __ in range(M):
             i = np.random.randint(len(y))
             update_vec = obj_fn.grad(X, y, v, i)-obj_fn.grad(X, y, v0, i)+grad_tmp
             if use_prox:
@@ -123,7 +122,6 @@ def SVRG(X, y, w, obj_fn, max_iter, strong_convexity=None, use_prox=False):
                 v -= stepsize*update_vec
         w = v
         wtab = np.vstack((wtab, w))
-        k += 1
 
     return w, wtab
 
@@ -149,7 +147,7 @@ def NM(X, y, w, obj_fn, max_iter, stopping_eps=1e-5):
         direction = np.linalg.solve(obj_fn.hess(X, y, w), g)
         w -= stepsize*direction
         wtab = np.vstack((wtab, w))
-        if 0.5*np.dot(g, direction) <= stopping_eps:
+        if .5*np.dot(g, direction) <= stopping_eps:
             break
 
     return w, wtab
@@ -160,11 +158,10 @@ def BFGS(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5):
     Implementation of the Broyden-Fletcher-Goldfarb-Shanno algorithm, a type of quasi-Newton method,
     with the stopping rule based on the absolute change in the value of the objective function
     """
-    #dbnorm = lambda x: round(np.linalg.norm(x, 2), 4)
     util.check_input_dims(X, y, w)
     wtab = np.copy(w)
     H = np.eye(w.size) # initialise Hessian approximation
-    stepsize = 1.0/smoothness
+    stepsize = 1./smoothness
 
     for k in range(max_iter):
         w_prev = np.copy(w)
@@ -175,7 +172,6 @@ def BFGS(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5):
         # Newton-method style weight update
         w -= stepsize*direction
         wtab = np.vstack((wtab, w))
-        #print(f"Updated weight vector norm: {dbnorm(w)}")
 
         # precision check for stopping condition
         current_objval, prev_objval = obj_fn(X, y, w), obj_fn(X, y, wtab[k])
@@ -187,7 +183,6 @@ def BFGS(X, y, w, obj_fn, max_iter, smoothness, stopping_eps=1e-5):
         # update Hessian approximation
         try:
             H -= util.bfgs_hessapprox_update(H, w-w_prev, obj_fn.grad(X, y, w)-g)
-            #print(f"Updated Hessian norm={dbnorm(H)}")
         except TypeError:
             print(f"BFGS optimiser: Zero-displacement curvature at iteration {k} Hessian update: stopping descent")
             break
@@ -220,7 +215,7 @@ def LBFGS(X, y, w, obj_fn, max_iter, smoothness, memory_size=10, stopping_eps=1e
             try:
                 H -= util.bfgs_hessapprox_update(H, disp[k], grad_disp[k])
             except TypeError:
-                print("L-BFGS optimiser: Zero-displacement curvature caught at iteration {k} Hessian update: stopping descent")
+                print(f"L-BFGS optimiser: Zero-displacement curvature caught at iteration {k} Hessian update: stopping descent")
                 break
             z = np.dot(H, g)
         else:
@@ -254,7 +249,7 @@ def SLBFGS(X, y, w, obj_fn, max_iter, smoothness, n_updates, memory_size, n_curv
         Batch size for Hessian subsampling
     """
     wtab = np.copy(w)
-    stepsize = 1.0/smoothness
+    stepsize = 1./smoothness
     n, p = y.size, w.size
     H = np.eye(p)
     x = w
