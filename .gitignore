@@ -1,5 +1,6 @@
 dev
 demo/dev
-*demo-data
 __pycache__
+demo/__pycache__
 .ipynb_checkpoints
+toy-lmopt-classifiers-demo-data
